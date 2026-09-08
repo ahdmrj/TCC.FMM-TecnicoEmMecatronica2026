@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Jogo das Letras</title>
+
+<style>
+
+html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    font-family:Arial,sans-serif;
+}
+
+body{
+    background-image:url("fundo.jpg");
+    background-position:center center;
+    background-repeat:no-repeat;
+    background-size:100vw 100vh;
+}
+
+#painel{
+    position:relative;
+    width:100vw;
+    height:100vh;
+}
+
+#tempo{
+    position:absolute;
+    left:42%;
+    top:16%;
+    width:45%;
+    text-align:center;
+    font-size:min(9vw,120px);
+    font-weight:bold;
+    color:#000;
+}
+
+#pontos{
+    position:absolute;
+    left:58%;
+    top:58%;
+    width:20%;
+    text-align:center;
+    font-size:min(9vw,120px);
+    font-weight:bold;
+    color:#000;
+}
+
+#letra{
+    position:absolute;
+    right:3%;
+    bottom:2%;
+
+    font-size:min(10vw,140px);
+    font-weight:bold;
+
+    color:yellow;
+
+    text-shadow:
+        0 0 10px #000,
+        0 0 20px #000,
+        0 0 30px #000;
+}
+
+#ajuda{
+    position:absolute;
+    top:10px;
+    left:10px;
+
+    color:white;
+    font-size:18px;
+
+    text-shadow:
+        0 0 5px #000;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="painel">
+
+    <div id="tempo">45</div>
+
+    <div id="pontos">0</div>
+
+    <div id="letra">-</div>
+
+    <div id="ajuda">
+        I = Configurar Relé |
+        H = Iniciar |
+        G = Resetar |
+        ESPAÇO = Ocultar/Mostrar
+    </div>
+
+</div>
+
+<script>
+
+// ======================
+// SERIAL
+// ======================
+
+let port;
+let writer;
+
+// ======================
+// RELÉS
+// ======================
+
+const letras = ["A","B","C","D","E","F"];
+
+const ligar = {
+A:":FE050000FF00FE\r\n",
+B:":FE050001FF00FD\r\n",
+C:":FE050002FF00FC\r\n",
+D:":FE050003FF00FB\r\n",
+E:":FE050004FF00FA\r\n",
+F:":FE050005FF00F9\r\n"
+};
+
+const desligar = {
+A:":FE0500000000FD\r\n",
+B:":FE0500010000FC\r\n",
+C:":FE0500020000FB\r\n",
+D:":FE0500030000FA\r\n",
+E:":FE0500040000F9\r\n",
+F:":FE0500050000F8\r\n"
+};
+
+// ======================
+// VARIÁVEIS
+// ======================
+
+let letraAtual = "";
+let pontos = 0;
+let jogoAtivo = false;
+
+let timerJogo;
+let timerLetra;
+
+let tempoLetra = 5000;
+
+let processando = false;
+let letraOculta = false;
+
+// ======================
+// SERIAL
+// ======================
+
+async function conectar(){
+
+    try{
+
+        port =
+        await navigator.serial.requestPort();
+
+        await port.open({
+            baudRate:9600
+        });
+
+        writer =
+        port.writable.getWriter();
+
+        await apagarTudo();
+
+        alert("Relé conectado!");
+
+    }catch(e){
+
+        console.error(e);
+
+        alert(
+            "Falha ao conectar o relé."
+        );
+    }
+}
+
+async function enviar(cmd){
+
+    if(!writer) return;
+
+    const encoder =
+    new TextEncoder();
+
+    await writer.write(
+        encoder.encode(cmd)
+    );
+
+    await new Promise(
+        r => setTimeout(r,20)
+    );
+}
+
+async function apagarTudo(){
+
+    if(!writer) return;
+
+    for(const l of letras){
+
+        await enviar(
+            desligar[l]
+        );
+    }
+}
+
+// ======================
+// LETRA
+// ======================
+
+async function novaLetra(){
+
+    clearTimeout(timerLetra);
+
+    if(writer && letraAtual){
+
+        await enviar(
+            desligar[letraAtual]
+        );
+    }
+
+    let nova;
+
+    do{
+
+        nova =
+        letras[
+            Math.floor(
+                Math.random() *
+                letras.length
+            )
+        ];
+
+    }while(
+        nova === letraAtual
+    );
+
+    letraAtual = nova;
+
+    document
+    .getElementById("letra")
+    .innerText = letraAtual;
+
+    if(writer){
+
+        await apagarTudo();
+
+        await enviar(
+            ligar[letraAtual]
+        );
+    }
+
+    timerLetra =
+    setTimeout(async ()=>{
+
+        if(jogoAtivo){
+
+            await novaLetra();
+
+        }
+
+    },tempoLetra);
+}
+
+// ======================
+// INICIAR
+// ======================
+
+async function iniciar(){
+
+    if(!writer){
+
+        alert(
+            "Pressione I para configurar o relé."
+        );
+
+        return;
+    }
+
+    if(jogoAtivo) return;
+
+    pontos = 0;
+
+    document
+    .getElementById("pontos")
+    .innerText = "0";
+
+    let restante = 45;
+
+    document
+    .getElementById("tempo")
+    .innerText = restante;
+
+    jogoAtivo = true;
+
+    await apagarTudo();
+
+    await novaLetra();
+
+    timerJogo =
+    setInterval(async ()=>{
+
+        restante--;
+
+        document
+        .getElementById("tempo")
+        .innerText = restante;
+
+        if(restante <= 0){
+
+            await finalizar();
+
+        }
+
+    },1000);
+}
+
+// ======================
+// FINALIZAR
+// ======================
+
+async function finalizar(){
+
+    jogoAtivo = false;
+
+    clearInterval(timerJogo);
+    clearTimeout(timerLetra);
+
+    await apagarTudo();
+
+    letraAtual = "";
+
+    document
+    .getElementById("letra")
+    .innerText = "-";
+}
+
+// ======================
+// RESET
+// ======================
+
+async function resetar(){
+
+    jogoAtivo = false;
+
+    clearInterval(timerJogo);
+    clearTimeout(timerLetra);
+
+    await apagarTudo();
+
+    letraAtual = "";
+    pontos = 0;
+
+    document
+    .getElementById("tempo")
+    .innerText = "45";
+
+    document
+    .getElementById("pontos")
+    .innerText = "0";
+
+    document
+    .getElementById("letra")
+    .innerText = "-";
+}
+
+// ======================
+// ACERTO
+// ======================
+
+async function acertou(letra){
+
+    if(!jogoAtivo) return;
+
+    if(processando) return;
+
+    if(letra !== letraAtual) return;
+
+    processando = true;
+
+    pontos++;
+
+    document
+    .getElementById("pontos")
+    .innerText = pontos;
+
+    await novaLetra();
+
+    processando = false;
+}
+
+// ======================
+// OCULTAR
+// ======================
+
+function alternarLetra(){
+
+    letraOculta =
+    !letraOculta;
+
+    const letra =
+    document.getElementById(
+        "letra"
+    );
+
+    const ajuda =
+    document.getElementById(
+        "ajuda"
+    );
+
+    if(letraOculta){
+
+        letra.style.visibility =
+        "hidden";
+
+        ajuda.style.visibility =
+        "hidden";
+
+    }else{
+
+        letra.style.visibility =
+        "visible";
+
+        ajuda.style.visibility =
+        "visible";
+    }
+}
+
+// ======================
+// TECLADO
+// ======================
+
+document.addEventListener(
+"keydown",
+async (e)=>{
+
+    if(e.code === "Space"){
+
+        e.preventDefault();
+
+        alternarLetra();
+
+        return;
+    }
+
+    const tecla =
+    e.key.toUpperCase();
+
+    if(tecla === "I"){
+
+        await conectar();
+        return;
+    }
+
+    if(tecla === "H"){
+
+        await iniciar();
+        return;
+    }
+
+    if(tecla === "G"){
+
+        await resetar();
+        return;
+    }
+
+    if([
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F"
+    ].includes(tecla)){
+
+        await acertou(tecla);
+    }
+
+});
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,231 @@
+#include <Arduino.h>
+
+// Pinagem original sequencial - GPIO 1 totalmente removida do mapeamento
+const uint8_t canais_rele[] = {18, 19, 21, 22, 23, 14, 27, 32};
+const uint8_t chaves_bto[]  = {16, 17, 5, 12, 26, 13, 4, 25}; // Botão 8 na GPIO 25 seguro
+const uint8_t P_START = 15;
+const uint8_t P_RESET = 0;
+const uint8_t P_MAIS = 33;
+
+// =========================================================================
+//                       PAINEL DE AJUSTES DO SISTEMA
+// =========================================================================
+const uint32_t CONFIG_DURACAO_PARTIDA  = 30000; // Tempo total de duração do jogo (ms)
+const uint32_t CONFIG_JANELA_REACAO    = 750;  // Tempo máximo que o LED fica aceso esperando o clique (ms)
+const uint32_t PAUSA_APAGADO_MIN       = 50;     // Tempo mínimo que o LED fica apagado entre rodadas (ms)
+const uint32_t PAUSA_APAGADO_MAX       = 50;  // Tempo máximo que o LED fica apagado entre rodadas (ms)
+const uint32_t CONFIG_PREPARACAO       = 3000;  // Contagem regressiva de preparação ao apertar START (ms)
+const uint32_t CONFIG_DEBOUNCE_MS      = 75;    // Filtro digital contra ruídos mecânicos/estática (ms)
+const uint32_t TEMPO_PULSO_PLACAR      = 50;   // Duração do contato fechado enviado para o placar de 12V (ms)
+const uint32_t AMORTECEDOR_MAGNETICO   = 50;   // Trava de leitura cega pós-acionamento para ignorar a bobina (ms)
+// =========================================================================
+
+bool estados_chaves[8];
+bool historico_chaves[8];
+bool status_saida_ativa = false;
+bool bloqueio_clique_duplo = false;
+
+// Variáveis de controle para o debounce do botão START
+bool estado_start = false;
+bool historico_start = false;
+
+unsigned long cronometro_geral;
+unsigned long marco_inicial_partida;
+unsigned long marco_fase_atual;
+unsigned long cronometro_alvo_aceso;
+unsigned long amortecedor_magnetico_bobina = 0;
+int indice_alvo_atual = -1;
+int indice_alvo_anterior = -1; 
+
+struct ControleMarcador {
+  bool ponto_em_andamento;
+  unsigned long inicio_ponto;
+} sinal_pontuacao;
+
+enum FluxoOperacional {
+  MODO_ESPERA,
+  MODO_PREPARACAO,
+  MODO_TRAVA_SEGURANCA,
+  MODO_NOVO_SORTEIO,
+  MODO_PAUSA_ALEATORIA,
+  MODO_MONITORA_TOQUE
+} fase_operacional = MODO_ESPERA;
+
+void gerenciar_saidas_led(int pino_selecionado, uint8_t nivel_logico) {
+  if (pino_selecionado < 0) {
+    for (uint8_t i = 0; i < 8; i++) digitalWrite(canais_rele[i], HIGH);
+    status_saida_ativa = false;
+  } else if (pino_selecionado < 8) {
+    digitalWrite(canais_rele[pino_selecionado], nivel_logico);
+    status_saida_ativa = (nivel_logico == LOW);
+  }
+}
+
+bool verificar_mesa_limpa() {
+  for (uint8_t i = 0; i < 8; i++) {
+    if (digitalRead(chaves_bto[i]) == LOW || estados_chaves[i] == true) return false;
+  }
+  return true;
+}
+
+void setup() {
+  randomSeed(esp_random());
+  
+  pinMode(P_MAIS, INPUT_PULLUP);
+  
+  // Força o desligamento imediato de todos os relés dos LEDs no boot
+  digitalWrite(18, HIGH); digitalWrite(19, HIGH); digitalWrite(21, HIGH); digitalWrite(22, HIGH); 
+  digitalWrite(23, HIGH); digitalWrite(14, HIGH); digitalWrite(27, HIGH); digitalWrite(32, HIGH);
+  
+  digitalWrite(P_MAIS, HIGH); pinMode(P_MAIS, OUTPUT);
+
+  for (uint8_t i = 0; i < 8; i++) { 
+    pinMode(canais_rele[i], OUTPUT); 
+    pinMode(chaves_bto[i], INPUT_PULLUP); 
+  }
+  pinMode(P_START, INPUT_PULLUP); 
+  pinMode(P_RESET, INPUT_PULLUP); 
+  
+  gerenciar_saidas_led(-1, HIGH);
+}
+
+void loop() {
+  cronometro_geral = millis();
+
+  // Bloco de varredura com debounce por tempo de amostragem consistente
+  if (cronometro_geral - amortecedor_magnetico_bobina >= AMORTECEDOR_MAGNETICO) {
+    static unsigned long ultima_varredura_botoes = 0;
+    if (cronometro_geral - ultima_varredura_botoes >= CONFIG_DEBOUNCE_MS) {
+      ultima_varredura_botoes = cronometro_geral;
+      
+      // Varredura das chaves dos alvos
+      for (uint8_t i = 0; i < 8; i++) {
+        bool leitura_atual = (digitalRead(chaves_bto[i]) == LOW);
+        if (leitura_atual != historico_chaves[i]) {
+          historico_chaves[i] = leitura_atual;
+        } else {
+          estados_chaves[i] = leitura_atual;
+        }
+      }
+
+      // Varredura do botão START (Seguindo a mesma lógica dos alvos)
+      bool leitura_start_atual = (digitalRead(P_START) == LOW);
+      if (leitura_start_atual != historico_start) {
+        historico_start = leitura_start_atual;
+      } else {
+        estado_start = leitura_start_atual;
+      }
+    }
+  } else {
+    for(uint8_t i = 0; i < 8; i++) { estados_chaves[i] = false; historico_chaves[i] = false; }
+    estado_start = false;
+    historico_start = false;
+  }
+
+  // Desarme automático do pulso de Conta Ponto (200ms)
+  if (sinal_pontuacao.ponto_em_andamento && (cronometro_geral - sinal_pontuacao.inicio_ponto >= TEMPO_PULSO_PLACAR)) {
+    digitalWrite(P_MAIS, HIGH);
+    sinal_pontuacao.ponto_em_andamento = false;
+  }
+
+  // Atribuição do gatilho a partir do estado filtrado pelo debounce
+  bool gatilho_start = estado_start;
+  bool gatilho_stop  = (digitalRead(P_RESET) == LOW);
+
+  // Parada manual (Gatilho STOP limpa o ESP32 e para o jogo imediatamente)
+  if (gatilho_stop) {
+    gerenciar_saidas_led(-1, HIGH);
+    digitalWrite(P_MAIS, HIGH);
+    sinal_pontuacao.ponto_em_andamento = false;
+    fase_operacional = MODO_ESPERA;
+    return;
+  }
+
+  if (fase_operacional == MODO_ESPERA && gatilho_start) {
+    for(uint8_t i = 0; i < 8; i++) { estados_chaves[i] = false; historico_chaves[i] = false; }
+    estado_start = false;
+    historico_start = false;
+    indice_alvo_anterior = -1; 
+    marco_fase_atual = cronometro_geral;
+    fase_operacional = MODO_PREPARACAO;
+    bloqueio_clique_duplo = false;
+    return;
+  }
+
+  if (fase_operacional == MODO_PREPARACAO) {
+    if (cronometro_geral - marco_fase_atual >= CONFIG_PREPARACAO) {
+      marco_inicial_partida = cronometro_geral;
+      fase_operacional = MODO_TRAVA_SEGURANCA;
+    }
+    return;
+  }
+
+  bool nenhuma_chave_detectada = true;
+  for (uint8_t i = 0; i < 8; i++) if (estados_chaves[i]) nenhuma_chave_detectada = false;
+  if (nenhuma_chave_detectada) bloqueio_clique_duplo = false;
+
+  if (fase_operacional == MODO_MONITORA_TOQUE && (cronometro_geral - cronometro_alvo_aceso >= CONFIG_JANELA_REACAO)) {
+    gerenciar_saidas_led(indice_alvo_atual, HIGH);
+    amortecedor_magnetico_bobina = cronometro_geral; 
+    indice_alvo_anterior = indice_alvo_atual; 
+    for(uint8_t i = 0; i < 8; i++) { estados_chaves[i] = false; historico_chaves[i] = false; }
+    fase_operacional = MODO_TRAVA_SEGURANCA; 
+  }
+
+  if (fase_operacional == MODO_TRAVA_SEGURANCA) {
+    static uint8_t leituras_limpas_consecutivas = 0;
+    if (verificar_mesa_limpa()) { 
+      leituras_limpas_consecutivas++;
+      if (leituras_limpas_consecutivas >= 3) { 
+        leituras_limpas_consecutivas = 0;
+        marco_fase_atual = cronometro_geral + (esp_random() % (PAUSA_APAGADO_MAX - PAUSA_APAGADO_MIN + 1) + PAUSA_APAGADO_MIN); 
+        fase_operacional = MODO_PAUSA_ALEATORIA;
+      }
+    } else {
+      leituras_limpas_consecutivas = 0; 
+    }
+    return; 
+  }
+
+  if (fase_operacional == MODO_NOVO_SORTEIO) {
+    int sorteio_temporario;
+    do {
+      sorteio_temporario = esp_random() % 8;
+    } while (sorteio_temporario == indice_alvo_anterior);
+
+    indice_alvo_atual = sorteio_temporario;
+    gerenciar_saidas_led(indice_alvo_atual, LOW); 
+    cronometro_alvo_aceso = cronometro_geral;
+    fase_operacional = MODO_MONITORA_TOQUE;
+  }
+  else if (fase_operacional == MODO_PAUSA_ALEATORIA) {
+    if (cronometro_geral >= marco_fase_atual) {
+      fase_operacional = MODO_NOVO_SORTEIO;
+    }
+  }
+  else if (fase_operacional == MODO_MONITORA_TOQUE) {
+    int chave_acionada = -1;
+    for (uint8_t i = 0; i < 8; i++) {
+      if (estados_chaves[i]) { chave_acionada = i; break; }
+    }
+
+    if (chave_acionada == indice_alvo_atual && chave_acionada >= 0 && !bloqueio_clique_duplo) {
+      gerenciar_saidas_led(indice_alvo_atual, HIGH);
+      digitalWrite(P_MAIS, LOW); 
+      sinal_pontuacao.ponto_em_andamento = true;
+      sinal_pontuacao.inicio_ponto = cronometro_geral;
+      
+      amortecedor_magnetico_bobina = cronometro_geral; 
+      bloqueio_clique_duplo = true;
+      indice_alvo_anterior = indice_alvo_atual; 
+      
+      for(uint8_t i = 0; i < 8; i++) { estados_chaves[i] = false; historico_chaves[i] = false; }
+      fase_operacional = MODO_TRAVA_SEGURANCA; 
+    }
+  }
+
+  if (fase_operacional != MODO_ESPERA && fase_operacional != MODO_PREPARACAO && (cronometro_geral - marco_inicial_partida >= CONFIG_DURACAO_PARTIDA)) {
+    gerenciar_saidas_led(-1, HIGH);
+    fase_operacional = MODO_ESPERA;
+  }
+}
