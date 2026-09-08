@@ -39,7 +39,7 @@ Abaixo estão listados os componentes principais dimensionados para o módulo:
 * **Expansão de Portas:** CI PCF8574 (I2C)
 * **Isolamento de Sinal:** Optoisoladores 4N25
 * **Atuadores suportados:** Módulos Relé de 4 canais e Eletroímãs (12V / 0.5A)
-* **Entradas:** Até 12 Botões mecânicos e 2 Joysticks direcionais
+* **Entradas:** Até 12 Botões mecânicos e portas logicas para até 2 Joysticks direcionais
 
 ---
 
