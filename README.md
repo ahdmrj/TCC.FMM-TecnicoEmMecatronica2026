@@ -1,7 +1,7 @@
 # 🕹️ Protótipo de Controlador Arcade de Baixo Custo (ESP32-C3 Mini)
 
 > **Projeto Acadêmico - TCC**  
-> Desenvolvimento de um controlador modular de baixo custo para jogos arcade amadores, mitigando limitações de pinos (GPIO) e ruídos elétricos.
+> Desenvolvimento de um controlador modular de baixo custo para jogos arcade amadores, mitigando limitações de pinos (GPIO) e ruídos elétricos. Este repositório tem como principal finalidade armazenar os códigos utilizados.
 
 ---
 
@@ -15,7 +15,7 @@
 
 ## 💻 Sobre o Projeto
 
-Este projeto apresenta um protótipo funcional de controlador embarcado voltado para fliperamas e simuladores retrô. O núcleo do sistema é o microcontrolador **ESP32-C3 Mini**. A pesquisa e o desenvolvimento focaram em resolver problemas comuns enfrentados por hobbistas: a escassez de portas lógicas nativas da placa compacta, o efeito *bounce* de botões mecânicos e a queima de componentes por surtos elétricos induzidos por atuadores (como eletroímãs).
+Este projeto apresenta um protótipo funcional de controlador embarcado voltado para fliperamas e simuladores retrô. O núcleo do sistema é o microcontrolador **ESP32-C3 Mini**. A pesquisa e o desenvolvimento focaram em resolver problemas comuns enfrentados por hobbistas: a escassez de portas lógicas nativas da placa compacta, o efeito *bounce* de botões mecânicos e a queima de componentes por surtos elétricos induzidos por atuadores (como eletroímãs). O desenvolvimento do projeto consta no documento TCC referente a este projeto.
 
 ---
 
