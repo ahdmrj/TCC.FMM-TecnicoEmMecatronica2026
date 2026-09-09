@@ -11,7 +11,6 @@
 - [Arquitetura de Hardware](#-arquitetura-de-hardware)
 - [Tecnologias e Ferramentas](#-tecnologias-e-ferramentas)
 - [Como Reproduzir o Projeto](#-como-reproduzir-o-projeto)
-- [Estrutura do Repositório](#-estrutura-do-repositório)
 - [Autor](#-autor)
 
 ---
@@ -60,25 +59,10 @@ Abaixo estão listados os componentes principais dimensionados para o módulo:
 
 ### Passos para Instalação
 
-1. Clone o repositório:
-   ```bash
-   git clone https://github.com
-   ```
-2. Abra o arquivo do firmware `/src/firmware_arcade.ino` no seu Arduino IDE.
+1. Copie o código e cole no Arduino IDE.
 3. Conecte o ESP32-C3 Mini ao seu computador via cabo USB adequado.
 4. Selecione a placa `ESP32C3 Dev Module` e a porta COM correta.
 5. Clique em **Carregar (Upload)**.
-
----
-
-## 📂 Estrutura do Repositório
-
-```text
-├── /docs            # Artigo científico, esquemáticos e diagramas em PDF
-├── /hardware        # Arquivos de projeto da placa (Esquemático / PCB)
-├── /src             # Código-fonte (Firmware desenvolvido em C/C++)
-└── README.md        # Documentação principal do projeto
-```
 
 ---
 
