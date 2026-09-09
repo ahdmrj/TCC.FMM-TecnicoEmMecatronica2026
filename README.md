@@ -93,10 +93,3 @@ Este projeto foi desenvolvido no âmbito de pesquisa da **Faculdade Matias Machl
 * **Andre Henrique do Monte Rodrigues Junior**
 * 📧 E-mail: ahdmrj.emt@gmail.com
 * 📍 Faculdade Matias Machline (FMM) – Manaus-AM, Brasil
----
-
-## ✉️ Autor
-
-* **Andre Henrique do Monte Rodrigues Junior**
-* 📧 E-mail: ahdmrj.emt@gmail.com
-* 📍 Faculdade Matias Machline (FMM) – Manaus-AM, Brasil
