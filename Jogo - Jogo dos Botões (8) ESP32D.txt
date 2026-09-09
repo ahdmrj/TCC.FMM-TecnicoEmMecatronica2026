@@ -223,7 +223,6 @@ void loop() {
       fase_operacional = MODO_TRAVA_SEGURANCA; 
     }
   }
-
   if (fase_operacional != MODO_ESPERA && fase_operacional != MODO_PREPARACAO && (cronometro_geral - marco_inicial_partida >= CONFIG_DURACAO_PARTIDA)) {
     gerenciar_saidas_led(-1, HIGH);
     fase_operacional = MODO_ESPERA;
